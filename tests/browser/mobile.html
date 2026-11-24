@@ -1,0 +1,13 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phone-width view (390px)</title></head>
+<body style="margin:0;background:#777">
+<!-- Same-origin iframe at phone width. Use: /_ui/mobile.html?tab=dashboard -->
+<iframe id="f" style="width:390px;height:2600px;border:0;background:#fff"></iframe>
+<pre id="T" style="position:fixed;right:0;top:0;color:transparent"></pre>
+<script>
+const tab = new URLSearchParams(location.search).get('tab') || 'dashboard';
+const f = document.getElementById('f'); f.src = '/#' + tab;
+f.onload = () => setTimeout(() => {
+  const d = f.contentDocument, de = d.documentElement;
+  document.getElementById('T').textContent = JSON.stringify({tab, viewport: f.clientWidth, scrollWidth: de.scrollWidth, overflowX: de.scrollWidth > f.clientWidth + 1});
+}, 6000);
+</script></body></html>

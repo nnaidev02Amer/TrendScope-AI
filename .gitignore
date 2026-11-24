@@ -1,0 +1,23 @@
+__pycache__
+.*.swp
+twitterApiHandleWithSecret.py
+
+# TrendScope AI: local data and generated output
+.venv/
+trendscope_data/
+demo_run.log
+demo/
+
+# Third-party assets not distributed (see SENTISTRENGTH.md)
+SentiStrength/
+
+# Local databases, logs, generated output, secrets
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.jar
+.env
+*.pem
+__pycache__/
+demo_run.log

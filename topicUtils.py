@@ -1,0 +1,150 @@
+#!/usr/bin/python3
+# -*- encoding: utf-8 -*-
+# Twitter trending topics analysis
+# Topic utilities module
+#
+# Written by Quentin Ribac
+# April 2018
+
+# This file defines several helper functions, including:
+# * how to print the human-readable summary files summary.txt (summary)
+# * topic sorting functions (sortByTFIDF, sortByViews and sortByTweetCount)
+# * how to extract a stats.csv from a topics.json (json2csv)
+#
+# json2csv defines the following fields, for a given topic:
+#
+# topicID: an identifier for the topic in this block
+# secs: the time identifier of the block in seconds
+# tweetCount: number of tweets in the topic, retweets counted as many times as found
+# singleTweetCount: number of tweets in the topic, retweets counted once only
+# views: sum of audience of all tweets in the topic
+# avgViews: views / tweetCount
+# maxViews: views of the tweet with the largest audience
+# tfidf: sum of tfidf of all tweets in the topic
+# avgTfidf: tfidf / tweetCount
+# URLsCount: total number of URLs in this topic’s tweets
+# avgURLsCount: URLsCount / tweetCount
+# avgMediaCount: average number of media (images and videos) per tweet
+# retweets: total number of times every tweet was retweeted
+# avgRetweets: retweets / tweetCount
+# favorites: total number of times every tweet was favorited (aka ‘liked’)
+# avgFavorites: favorites / tweetCount
+# sentiment: sum of all tweets’ sentiment
+# avgSentiment: sentimient / tweetCount
+# absSentiment: sum of the absolute values of the sentiment of every tweet
+# minSentiment and maxSentiment: minimum and maximum sentiment found in the topic
+# nsr: Net Sentiment Rate of the topic (number of positive - number of negative) / tweetCount
+# positiveCount, negativeCount and neutralCount: number of tweets with positive, negative or neutral sentiment
+
+# imports
+import json
+import sys
+
+# utils
+tweetCount = lambda topic: sum([tweet['occurrences'] for tweet in topic['tweets']])
+
+# human readable summary of topics
+def summary(topics, totalTweetCount, COSINE_SIM_THRESHOLD, MIN_TOPIC_SIZE):
+    # sort topics by tweet count
+    topics = sortByTweetCount(topics)
+
+    # write summary to string
+    tweetsKept = sum([tweetCount(topic) for topic in topics])
+    ret = 'topics: ' + str(len(topics)) + ', tweets kept: ' + str(tweetsKept) + '/' + str(totalTweetCount) + ' (' + str(tweetsKept * 100 / totalTweetCount) + '%)\n'
+    ret += 'θcs: ' + str(COSINE_SIM_THRESHOLD) + ', min size: ' + str(MIN_TOPIC_SIZE) + '\n'
+    ret += '======\n'
+    for i, topic in enumerate(topics):
+        topic['terms'] = dict(sorted(topic['terms'].items(), key = lambda x: x[1], reverse = True)[:8])
+        ret += 'Topic ' + str(i + 1) + ': ' + str(tweetCount(topic)) + ' tweets\n'
+        ret += 'Terms: ' + ' '.join([term for (term, tfidf) in topic['terms'].items()]) + '\n'
+        ret += 'Views: ' + str(topic['views']) + '\n'
+        for tweet in sorted(topic['tweets'], key = lambda t: t['occurrences'], reverse = True):
+            ret += '(' + str(tweet['occurrences']) + 'x)>>> ' + tweet['text'] + '\n'
+        ret += '\n'
+    ret += '======\n'
+    ret += 'topics: ' + str(len(topics)) + ', tweets kept: ' + str(tweetsKept) + '/' + str(totalTweetCount) + ' (' + str(tweetsKept * 100 / totalTweetCount) + '%)\n'
+    ret += 'θcs: ' + str(COSINE_SIM_THRESHOLD) + ', min size: ' + str(MIN_TOPIC_SIZE) + '\n'
+    return ret
+
+# topics sorting criteria
+def sortByTFIDF(topics):
+    return sorted(topics, key = lambda topic: sum(topic['terms'].values()), reverse = True)
+
+def sortByViews(topics):
+    return sorted(topics, key = lambda topic: topic['views'], reverse = True)
+
+def sortByTweetCount(topics):
+    return sorted(topics, key = tweetCount, reverse = True)
+
+# print data CSV from json file
+# sentiThresh: a tweet is positive above sentiThresh and negative below -sentiThresh
+# it must match the threshold used for sentimentStats.json (see topicDetection.sentiThreshold)
+# the default of 1 is the former hard-coded value, suited to SentiStrength's -4..4 scale
+def json2csv(topics = [], secs = 0, headersOnly = False, MIN_TOPIC_SIZE = 5, sentiThresh = 1):
+    # field helpers
+    fieldHelpers = {
+        'topicID': lambda topic: topics.index(topic),
+        'secs': lambda topic: secs,
+        'tweetCount': tweetCount,
+        'singleTweetCount': lambda topic: len(topic['tweets']),
+        'views': lambda topic: topic['views'],
+        'avgViews': lambda topic: '%.2f' % (topic['views'] / tweetCount(topic)),
+        'maxViews': lambda topic: max([t['user']['followers_count'] for t in topic['tweets']]),
+        'tfidf': lambda topic: sum(topic['terms'].values()),
+        'avgTfidf': lambda topic: '%.2f' % (sum(topic['terms'].values()) / tweetCount(topic)),
+        'URLsCount': lambda topic: sum([len(t['entities']['urls']) for t in topic['tweets'] if 'urls' in t['entities']]),
+        'avgURLsCount': lambda topic: '%.2f' % (sum([len(t['entities']['urls']) for t in topic['tweets'] if 'urls' in t['entities']]) / tweetCount(topic)),
+        'avgMediaCount': lambda topic: '%.2f' % (
+            sum(
+                [
+                    len(t['entities']['media'] if 'media' in t['entities'] else [])
+                    + len(t['extended_entities']['media'] if 'extended_entities' in t and 'media' in t['extended_entities'] else [])
+                    for t in topic['tweets']
+                ]
+            ) / tweetCount(topic)
+        ),
+        'retweets': lambda topic: sum([t['retweet_count'] * t['occurrences'] for t in topic['tweets']]),
+        'avgRetweets': lambda topic: '%.2f' % (sum([t['retweet_count'] * t['occurrences'] for t in topic['tweets']]) / tweetCount(topic)),
+        'favorites': lambda topic: sum([t['favorite_count'] * t['occurrences'] for t in topic['tweets']]),
+        'avgFavorites': lambda topic: '%.2f' % (sum([t['favorite_count'] * t['occurrences'] for t in topic['tweets']]) / tweetCount(topic)),
+        'sentiment': lambda topic: sum([t['sentiment'] for t in topic['tweets']]),
+        'avgSentiment': lambda topic: '%.2f' % (sum([t['sentiment'] for t in topic['tweets']]) / tweetCount(topic)),
+        'absSentiment': lambda topic: sum([abs(t['sentiment']) for t in topic['tweets']]),
+        'minSentiment': lambda topic: min([t['sentiment'] / t['occurrences'] for t in topic['tweets']]),
+        'maxSentiment': lambda topic: max([t['sentiment'] / t['occurrences'] for t in topic['tweets']]),
+        'nsr': lambda topic: '%.2f' % (
+            (
+                sum([t['occurrences'] for t in topic['tweets'] if t['sentiment'] > sentiThresh * t['occurrences']])
+                - sum([t['occurrences'] for t in topic['tweets'] if t['sentiment'] < -sentiThresh * t['occurrences']])
+            ) / tweetCount(topic)
+        ),
+        'positiveCount': lambda topic: sum([t['occurrences'] for t in topic['tweets'] if t['sentiment'] > sentiThresh * t['occurrences']]),
+        'negativeCount': lambda topic: sum([t['occurrences'] for t in topic['tweets'] if t['sentiment'] < -sentiThresh * t['occurrences']]),
+        'neutralCount': lambda topic: sum([t['occurrences'] for t in topic['tweets'] if abs(t['sentiment']) <= sentiThresh * t['occurrences']]),
+    }
+
+    # in case we only want the headers line
+    if headersOnly:
+        return '\t'.join(fieldHelpers.keys()) + '\n'
+
+    # if we want the content
+    ret = ''
+    for topic in topics:
+        if tweetCount(topic) >= MIN_TOPIC_SIZE:
+            for i, fh in enumerate(fieldHelpers.values()):
+                if i >= 1:
+                    ret += '\t'
+                ret += str(fh(topic))
+            ret += '\n'
+    return ret
+
+if __name__ == '__main__':
+    d = '../../tweets/newsEN-20180508'
+    for i in range(41):
+        topics = []
+        with open('%s/json/filtered/filtered%02d.json' % (d, i), 'r', encoding = 'utf-8') as f:
+            for line in f:
+                topics.append(json.loads(line))
+        with open('%s/topics/filtered/stats%02d.csv' % (d, i), 'w+', encoding = 'utf-8') as f:
+            f.write(json2csv(headersOnly = True) + '\n')
+            f.write(json2csv(topics = topics) + '\n')
